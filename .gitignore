@@ -1,0 +1,24 @@
+# Haskell
+dist-newstyle/
+*.hi
+*.o
+*.dyn_hi
+*.dyn_o
+
+# Lean
+lean/.lake/
+
+# SQLite
+*.db
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+
+# OS
+.DS_Store

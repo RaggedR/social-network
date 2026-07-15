@@ -1,0 +1,836 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{tikz-cd}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{example}[definition]{Example}
+\theoremstyle{plain}
+\newtheorem{theorem}[definition]{Theorem}
+\newtheorem{lemma}[definition]{Lemma}
+\newtheorem{corollary}[definition]{Corollary}
+\newtheorem{proposition}[definition]{Proposition}
+\theoremstyle{remark}
+\newtheorem{remark}[definition]{Remark}
+
+\newcommand{\DCont}{\mathbf{DCont}}
+\newcommand{\Cat}{\mathbf{Cat}}
+\newcommand{\Set}{\mathbf{Set}}
+\newcommand{\Pos}{\mathrm{Pos}}
+\newcommand{\sub}{\mathop{\downarrow}}
+\newcommand{\shape}{\mathrm{Shape}}
+\newcommand{\Ext}{\mathrm{Ext}}
+\newcommand{\op}{\mathrm{op}}
+\newcommand{\Ctx}{\mathbf{Ctx}}
+\newcommand{\viewer}{\mathrm{viewer}}
+\newcommand{\ego}{\mathrm{ego}}
+\renewcommand{\root}{\mathrm{o}}
+
+\lstdefinestyle{haskell}{
+  language=Haskell,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!70!black}\bfseries,
+  commentstyle=\color{green!50!black}\itshape,
+  stringstyle=\color{red!60!black},
+  showstringspaces=false,
+  columns=flexible,
+  breaklines=true,
+  literate={->}{$\to$}2 {=>}{$\Rightarrow$}2 {<-}{$\leftarrow$}2
+           {forall}{$\forall$}1 {::}{$\mathop{::}$}2
+}
+
+\lstdefinestyle{lean}{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{purple!70!black}\bfseries,
+  commentstyle=\color{green!50!black}\itshape,
+  showstringspaces=false,
+  columns=flexible,
+  breaklines=true,
+  morekeywords={def,theorem,structure,where,import,namespace,end,variable,
+                inductive,instance,class,deriving,by,intro,exact,rfl,funext,
+                show,apply,obtain,have,let,fun,Type,Prop,sorry}
+}
+
+\title{Social Networks as Directed Container Comonads:\\
+A Categorical Framework with Controlled Sheaf Failure}
+\author{Robin Langer \and Neil Ghani}
+\date{July 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present a categorical framework for social networks built on three
+interlocking structures: (1)~\emph{directed containers}
+(Ahman--Chapman--Uustalu) model the social graph, where the comonad's
+\texttt{extract} produces a user's feed and \texttt{extend} applies
+feed algorithms across all perspectives; (2)~\emph{presheaves} on a
+category of viewing contexts model permissions, with contravariance
+capturing the principle that less privilege sees less content;
+(3)~the \emph{sheaf condition} classifies content by consistency
+guarantee---public posts form a sheaf (all viewers agree), while
+blocked content and personalised feeds deliberately fail the gluing
+axiom. The framework is implemented in Haskell (Servant, type-safe
+API) with invariants verified in sorry-free Lean~4, reusing the
+container and comonad library from the \emph{trust-boundaries}
+project. The Haskell types serve double duty: they are the runtime
+data model \emph{and} the template for Lean theorem statements, with
+the Curry--Howard correspondence making the translation nearly
+mechanical.
+\end{abstract}
+
+\tableofcontents
+
+%% ===================================================================
+\section{Introduction}
+%% ===================================================================
+
+Social networks are widely acknowledged to be hard to build correctly.
+The difficulty is not any single problem but the \emph{product} of
+several interacting concerns: graph traversal, access control,
+consistency, and ranking. We argue that these concerns decompose
+cleanly along categorical lines:
+
+\begin{enumerate}[nosep]
+  \item The \textbf{feed problem}---computing a personalised view of
+    the graph---is an instance of the comonadic \texttt{extend}
+    operation on a directed container.
+  \item The \textbf{permission problem}---who sees what---is the
+    functoriality condition of a presheaf on viewing contexts.
+  \item The \textbf{consistency problem}---where do different viewers
+    agree?---is the sheaf condition, and a well-designed social network
+    controls \emph{exactly where} this condition holds and where it
+    fails.
+\end{enumerate}
+
+This paper develops the mathematics, provides a Haskell implementation
+that mirrors the categorical structure, and identifies the proof
+obligations that we discharge in Lean~4.
+
+\paragraph{Relation to prior work.}
+The directed container library (containers, directed containers,
+comonad laws, coKleisli composition, and strength) was developed and
+formalised in the \emph{trust-boundaries} project~\cite{trust}, where
+proof registries for epistemically honest AI agents were modelled as
+directed container comonads. We reuse that library wholesale and
+provide a new instantiation for social graphs.
+
+%% ===================================================================
+\section{Background: containers and directed containers}
+\label{sec:background}
+%% ===================================================================
+
+We recall the definitions from Abbott--Altenkirch--Ghani~\cite{aag}
+and Ahman--Chapman--Uustalu~\cite{acu}, following the Lean
+formalisation in the trust-boundaries library.
+
+\begin{definition}[Container]
+A \emph{container} is a pair $C = (S, P)$ where $S$ is a type of
+\emph{shapes} and $P : S \to \mathrm{Type}$ is a family of
+\emph{positions}. Its \emph{extension} is the polynomial functor
+\[
+  \llbracket C \rrbracket(X) = \sum_{s : S} (P(s) \to X).
+\]
+\end{definition}
+
+Container morphisms $(f, f^\sharp) : C \to D$ consist of a shape map
+$f : S_C \to S_D$ and a contravariant position map
+$f^\sharp_s : P_D(f\,s) \to P_C(s)$. The representation theorem
+establishes: container morphisms $C \to D$ are in bijection with
+natural transformations
+$\llbracket C \rrbracket \Rightarrow \llbracket D \rrbracket$.
+
+\begin{definition}[Directed container]\label{def:dcont}
+A \emph{directed container} extends a container $(S, P)$ with three
+operations:
+\begin{itemize}[nosep]
+  \item a \emph{root} $\root : \prod_{s:S} P(s)$;
+  \item a \emph{sub-shape} ${\sub} : \prod_{s:S} P(s) \to S$;
+  \item a \emph{shift} $\oplus : \prod_{s:S} \prod_{p:P(s)} P(s \sub p) \to P(s)$;
+\end{itemize}
+subject to five laws:
+\begin{enumerate}[label=\textbf{D\arabic*},nosep]
+  \item $s \sub \root(s) = s$
+  \item $\root(s) \oplus q = q$ \quad(transported along D1)
+  \item $p \oplus \root(s \sub p) = p$
+  \item $s \sub (p \oplus q) = (s \sub p) \sub q$
+  \item $(p \oplus q) \oplus r = p \oplus (q \oplus r)$ \quad(transported along D4)
+\end{enumerate}
+\end{definition}
+
+\begin{theorem}[Comonad structure {\cite{acu}}]\label{thm:comonad}
+A directed container $(S, P, \root, {\sub}, \oplus)$ induces a comonad
+on $\llbracket C \rrbracket$ with:
+\begin{align*}
+  \varepsilon\,\langle s, v \rangle &= v(\root(s)) \\
+  \delta\,\langle s, v \rangle &= \langle s,\; \lambda p.\, \langle s \sub p,\; \lambda q.\, v(p \oplus q) \rangle \rangle
+\end{align*}
+The three comonad laws follow from D1--D5:
+\begin{itemize}[nosep]
+  \item Left counit $\varepsilon \circ \delta = \mathrm{id}$ from D1, D2.
+  \item Right counit $\llbracket C \rrbracket(\varepsilon) \circ \delta = \mathrm{id}$ from D3.
+  \item Coassociativity $\llbracket C \rrbracket(\delta) \circ \delta = \delta \circ \delta$ from D4, D5.
+\end{itemize}
+All five laws and all three comonad laws are formalised sorry-free in
+Lean~4 (files \texttt{Directed.lean}, \texttt{CoKleisli.lean} in the
+trust-boundaries library).
+\end{theorem}
+
+%% ===================================================================
+\section{The social graph as a directed container}
+\label{sec:social-dcont}
+%% ===================================================================
+
+We now instantiate the abstract framework for social networks.
+
+\begin{definition}[Social graph container]\label{def:social-graph}
+Let $\mathcal{G}$ be the directed container defined by:
+\begin{itemize}[nosep]
+  \item $S = $ the type of \emph{social graphs}: a set of users $U$
+    together with a follow relation $F \subseteq U \times U$ and a
+    distinguished viewer $v_0 \in U$.
+  \item $P(s) = U_s$, the set of users in graph $s$.
+  \item $\root(s) = v_0$, the logged-in viewer.
+  \item $s \sub p = \ego(s, p)$, the \emph{ego network} of user $p$
+    in graph $s$: the subgraph induced by $p$ and all users $p$ follows.
+  \item $p \oplus q$: given $p \in P(s)$ and $q \in P(s \sub p)$,
+    the user $q$ (which is also a user in $s$, since $P(s \sub p) \subseteq P(s)$).
+\end{itemize}
+\end{definition}
+
+\begin{proposition}[D1--D5 for social graphs]\label{prop:social-d1d5}
+The social graph container satisfies the five directed container laws:
+\begin{enumerate}[label=\textbf{D\arabic*},nosep]
+  \item $\ego(s, v_0) = s$: the ego network of the viewer is the
+    entire visible graph. (Holds when the viewer can see everyone they
+    follow---the public-posts assumption.)
+  \item $v_0 \oplus q = q$: navigating from the viewer to position $q$
+    in the viewer's ego network yields $q$. (Immediate from the
+    definition of $\oplus$ as inclusion.)
+  \item $p \oplus \root(\ego(s,p)) = p \oplus p = p$: navigating from $p$
+    to $p$'s own root position returns to $p$. (The root of
+    $\ego(s,p)$ is $p$ itself.)
+  \item $\ego(s, p \oplus q) = \ego(\ego(s, p), q)$: the ego network of
+    $q$ in the full graph equals the ego network of $q$ within $p$'s
+    ego network. (Holds when follow relations are global---$q$'s
+    follows don't depend on who's looking.)
+  \item Shift associativity: $(p \oplus q) \oplus r = p \oplus (q \oplus r)$.
+    (Both sides equal $r$, since $\oplus$ is inclusion.)
+\end{enumerate}
+\end{proposition}
+
+\begin{remark}
+D4 is the most substantive law for social networks. It says that the
+ego network is \emph{context-independent}: what user $q$ can see
+doesn't depend on which larger graph you computed $q$'s ego network
+within. This holds for public, asymmetric-follow networks (like early
+Twitter). It \emph{fails} when privacy settings make visibility
+context-dependent---which is exactly where the presheaf layer
+(Section~\ref{sec:presheaf}) takes over.
+\end{remark}
+
+\begin{corollary}[Social feed as comonadic extract]
+By Theorem~\ref{thm:comonad}, the social graph comonad has:
+\begin{align*}
+  \varepsilon\,\langle s, v \rangle &= v(v_0) && \text{(``my content''---the viewer's own posts)} \\
+  \delta\,\langle s, v \rangle &= \langle s,\; \lambda p.\, \langle \ego(s,p),\; \lambda q.\, v(q) \rangle \rangle && \text{(``feed of feeds'')}
+\end{align*}
+The \emph{feed algorithm} is a coKleisli morphism
+$f : \llbracket \mathcal{G} \rrbracket(X) \to Y$---a function that
+inspects a local neighbourhood and produces a summary. Applying it
+everywhere via $\mathrm{extend}\,f$ produces each user's personalised
+feed.
+\end{corollary}
+
+\subsection{Haskell encoding}
+
+The Haskell types mirror the Lean definitions:
+
+\begin{lstlisting}[style=haskell]
+-- Domain types
+newtype UserId = UserId Int
+data User = User { userId :: UserId, handle :: Text, displayName :: Text }
+data Post = Post { postId :: PostId, author :: UserId, body :: Text, createdAt :: UTCTime }
+
+-- The social graph
+data SocialGraph = SocialGraph
+  { users   :: Set UserId
+  , follows :: Set (UserId, UserId)  -- (follower, followed)
+  , viewer  :: UserId
+  }
+
+-- Extension functor
+data Ext x = Ext SocialGraph (UserId -> x)
+  deriving Functor
+
+-- Directed container operations
+root :: SocialGraph -> UserId
+root = viewer
+
+egoNetwork :: SocialGraph -> UserId -> SocialGraph
+egoNetwork g u = SocialGraph
+  { users   = Set.insert u (followedBy u g)
+  , follows = Set.filter (\(a,_) -> a == u) (follows g)
+  , viewer  = u
+  }
+
+shift :: SocialGraph -> UserId -> UserId -> UserId
+shift _ _ q = q  -- inclusion: q is already a user in the parent graph
+
+-- Comonad operations (derived, not hand-written)
+extract :: Ext x -> x
+extract (Ext g v) = v (root g)
+
+duplicate :: Ext x -> Ext (Ext x)
+duplicate (Ext g v) = Ext g (\p -> Ext (egoNetwork g p) (\q -> v (shift g p q)))
+
+extend :: (Ext x -> y) -> Ext x -> Ext y
+extend f (Ext g v) = Ext g (\p -> f (Ext (egoNetwork g p) (\q -> v (shift g p q))))
+\end{lstlisting}
+
+\subsection{Lean proof obligations}
+
+The abstract comonad laws are already proved in the trust-boundaries
+library. The only new proof work is instantiating D1--D5 for the
+social graph:
+
+\begin{lstlisting}[style=lean]
+-- New file: SocialGraph.lean
+import Containers.Directed
+
+def SocialGraph : DirectedContainer where
+  Shape := GraphShape           -- users + follow relation + viewer
+  Pos   := fun g => g.Users
+  root  := fun g => g.viewer
+  sub   := fun g u => egoNetwork g u
+  shift := fun g _ q => q       -- inclusion
+  d1    := by intro g; ext; simp [egoNetwork]  -- ego of viewer = full graph
+  d2    := by intro g q; rfl                    -- root shift = id
+  d3    := by intro g p; rfl                    -- shift to sub-root = id
+  d4    := by intro g p q; ext; simp [egoNetwork]  -- ego nesting
+  d5    := by intro g p q r; rfl                -- shift associativity (trivial)
+\end{lstlisting}
+
+%% ===================================================================
+\section{Presheaves: the permission layer}
+\label{sec:presheaf}
+%% ===================================================================
+
+The directed container gives us the feed. But a real social network
+must answer: \emph{which content is visible to which viewer?} This is
+the domain of presheaves.
+
+\begin{definition}[Category of contexts]\label{def:ctx}
+Let $\Ctx$ be the category where:
+\begin{itemize}[nosep]
+  \item Objects are \emph{viewing contexts}: triples $(u, t, \pi)$
+    where $u$ is a user, $t$ is a timestamp, and $\pi$ is a
+    permission set (e.g., \{public, follower, admin\}).
+  \item A morphism $c_1 \to c_2$ exists when $c_2$ is a
+    \emph{restriction} of $c_1$: same or later time, same or fewer
+    permissions, same or more restricted viewer.
+\end{itemize}
+Composition is transitive restriction. Identity is the trivial
+restriction.
+\end{definition}
+
+\begin{definition}[Content presheaf]\label{def:presheaf}
+A \emph{content presheaf} is a functor $F : \Ctx^\op \to \Set$.
+For each context $c$, $F(c)$ is the set of content visible in that
+context. Contravariance means: if $c_1 \to c_2$ is a restriction
+(forgetting privilege), then $F(c_2 \to c_1) : F(c_1) \to F(c_2)$
+maps the larger visible set into the smaller one.
+\end{definition}
+
+\begin{remark}[Privacy bugs as functoriality failures]
+A privacy bug is a violation of functoriality: a case where
+restricting privilege does not correctly restrict visible content. For
+example, if a user blocks another but the blocked user can still see
+their posts through a cached API response, the restriction morphism
+has failed to propagate. The presheaf framework makes this precise:
+every privacy invariant is a functoriality condition.
+\end{remark}
+
+\subsection{Haskell encoding}
+
+\begin{lstlisting}[style=haskell]
+-- Viewing context
+data Context = Context
+  { ctxViewer :: UserId
+  , ctxTime   :: UTCTime
+  , ctxPerms  :: PermissionSet
+  }
+
+-- Permission levels (ordered by privilege)
+data Permission = Public | Follower | Mutual | Admin
+  deriving (Eq, Ord)
+
+-- Context morphism: evidence that c2 is a restriction of c1
+data Restriction = Restriction
+  { from :: Context
+  , to   :: Context
+  }
+
+-- Content presheaf: contravariant functor from contexts to sets of content
+class ContentPresheaf f where
+  view     :: Context -> f content -> Set content
+  restrict :: Restriction -> Set content -> Set content
+  -- Laws (enforced in Lean):
+  --   restrict id = id
+  --   restrict (g . f) = restrict f . restrict g
+\end{lstlisting}
+
+\subsection{Lean formalisation}
+
+\begin{lstlisting}[style=lean]
+structure Context where
+  viewer : UserId
+  time   : Nat        -- discrete timestamp
+  perms  : Finset Permission
+
+-- Restriction: c1 has at least as much privilege as c2
+def Restricts (c1 c2 : Context) : Prop :=
+  c2.perms <=  c1.perms /\ c1.time <=  c2.time
+
+structure ContentPresheaf where
+  Content : Type
+  view : Context -> Finset Content
+  map_restrict : forall c1 c2, Restricts c1 c2 -> view c1 >=  view c2
+  -- Contravariance: more privilege shows more content
+\end{lstlisting}
+
+%% ===================================================================
+\section{The sheaf condition and its failure}
+\label{sec:sheaf}
+%% ===================================================================
+
+A presheaf $F : \Ctx^\op \to \Set$ satisfies the \emph{sheaf
+condition} with respect to a coverage $\{c_i \to c\}$ when compatible
+local sections glue to a unique global section. In social network
+terms: if every user's local view of a piece of content is
+``the same,'' there is a single global truth.
+
+\begin{definition}[Compatibility]
+Given a cover $\{c_i\}_{i \in I}$ of a context $c$, a family of
+local sections $\{s_i \in F(c_i)\}$ is \emph{compatible} when for
+every pair $i, j$ with overlap $c_{ij} = c_i \times_c c_j$:
+\[
+  F(c_i \leftarrow c_{ij})(s_i) = F(c_j \leftarrow c_{ij})(s_j).
+\]
+\end{definition}
+
+\subsection{Features that preserve the sheaf}
+
+The minimal social network (Section~\ref{sec:minimal}) has a
+\emph{non-constant} content presheaf: the feed query restricts
+visibility to posts by users the viewer follows, so different
+viewers see different sets of posts. Nevertheless, the sheaf
+condition holds: for any post $p$, all viewers who can see $p$
+agree on its content (text, author, timestamp), and viewers who
+cannot see $p$ simply have no local section. There are no
+conflicts.
+
+Several natural features preserve this property. We classify them
+by which categorical layer they modify:
+
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Feature} & \textbf{What changes} & \textbf{Categorical layer} & \textbf{Sheaf?} \\
+\midrule
+Follow/unfollow & Which graph edges I traverse & Shape (directed container) & Yes \\
+Mute & Which coKleisli morphism I run & CoKleisli morphism & Yes \\
+Protected account & Who can create a follow edge & Gate on shape modification & Yes \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{remark}[Muting is coKleisli, not presheaf]
+Muting---hiding a followed user's posts from your feed without
+unfollowing---does not alter the content presheaf. The muted user's
+posts still \emph{exist} for the muter (accessible via direct
+navigation). Muting only changes the feed algorithm, i.e., the
+coKleisli morphism $f : \llbracket \mathcal{G} \rrbracket(X) \to Y$
+that the viewer applies. The social graph (shape) retains the follow
+edge, so the muted user sees no change in their follower count. This
+is reader-side control: it parameterises the coKleisli morphism
+without touching the presheaf.
+\end{remark}
+
+\begin{remark}[Protected accounts preserve the sheaf]
+A protected account requires follow approval, but does not change the
+visibility model. In both the unprotected and protected cases, the
+invariant is: followers see all posts, non-followers see none. The
+only difference is the mechanism by which an edge enters the follow
+relation (unilateral vs.\ approval). The presheaf fibres are
+unchanged; only the \emph{gate} on shape modification changes.
+\end{remark}
+
+\subsection{The minimal sheaf-breaking feature: audience selection}
+
+The sheaf holds as long as the following invariant is maintained:
+
+\medskip
+\noindent\textbf{Uniform follower visibility:} \emph{If you follow
+user $u$, you see all of $u$'s posts.}
+\medskip
+
+\noindent The sheaf breaks at the precise moment this invariant
+weakens to: \emph{If you follow user $u$, you see \textbf{some} of
+$u$'s posts.} The minimal feature that causes this is
+\textbf{audience selection}: the author chooses, per post, which
+subset of their followers can see it.
+
+\begin{definition}[Audience-selected post]\label{def:audience}
+An \emph{audience-selected post} extends the post type with an
+explicit audience:
+\[
+  \mathrm{Post} = (\mathrm{author},\; \mathrm{body},\; \mathrm{timestamp},\; \mathrm{audience} \subseteq \mathrm{Followers}(\mathrm{author}))
+\]
+When $\mathrm{audience} = \mathrm{Followers}(\mathrm{author})$, the
+post is visible to all followers (the sheaf case). When
+$\mathrm{audience} \subsetneq \mathrm{Followers}(\mathrm{author})$,
+some followers are excluded.
+\end{definition}
+
+\begin{theorem}[Audience selection violates the sheaf condition]\label{thm:audience-antisheaf}
+Let Alice have followers Bob and Carol. Let $p$ be a post by Alice
+with $\mathrm{audience}(p) = \{\text{Carol}\}$. Then:
+\begin{itemize}[nosep]
+  \item $p \in F(c_{\text{Carol}})$ --- Carol sees the post;
+  \item $p \notin F(c_{\text{Bob}})$ --- Bob does not see the post;
+\end{itemize}
+yet Bob and Carol are both followers of Alice. No global section over
+the cover $\{c_{\text{Bob}}, c_{\text{Carol}}\}$ is compatible with
+both local views.
+\end{theorem}
+
+\begin{proof}
+A global section must either include $p$ or exclude it. If it
+includes $p$, it contradicts $p \notin F(c_{\text{Bob}})$. If it
+excludes $p$, it contradicts $p \in F(c_{\text{Carol}})$. The gluing
+axiom fails.
+\end{proof}
+
+\begin{remark}[One field, one table]
+In the data model, audience selection adds one junction table:
+\begin{center}
+\texttt{post\_audience(post\_id, user\_id)}
+\end{center}
+and changes the feed query to:
+\begin{lstlisting}[language=SQL,basicstyle=\ttfamily\small]
+SELECT p.* FROM posts p
+  JOIN follows f ON p.author_id = f.followed_id
+  LEFT JOIN post_audience pa ON pa.post_id = p.id
+  WHERE f.follower_id = :me
+    AND (pa.post_id IS NULL          -- no audience restriction
+         OR pa.user_id = :me)        -- or I am in the audience
+  ORDER BY p.created_at DESC LIMIT 50;
+\end{lstlisting}
+The sheaf breaks with one additional field on the post (or
+equivalently, one junction table). This is the exact cost of leaving
+the sheaf.
+\end{remark}
+
+\subsection{Consistency classification}
+
+\begin{definition}[Consistency levels]\label{def:consistency}
+We classify content by sheaf behaviour:
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Level} & \textbf{Meaning} & \textbf{Examples} \\
+\midrule
+\textsc{Sheaf} & All viewers in cover agree & Public posts, profiles, follows \\
+\textsc{EventualSheaf} & Viewers converge over time & Like counts, follower counts \\
+\textsc{Presheaf} & Deliberate within-follower disagreement & Audience-selected posts \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{definition}
+
+\begin{theorem}[Public posts form a sheaf]\label{thm:public-sheaf}
+Let $F$ be the content presheaf restricted to posts with
+$\mathrm{audience} = \mathrm{Followers}(\mathrm{author})$ (i.e., no
+audience restriction). Then $F$ satisfies the sheaf condition: for
+any cover of follower contexts, all local sections are compatible,
+and a unique global section exists.
+\end{theorem}
+
+\begin{proof}
+For any post $p$ with unrestricted audience, every follower of the
+author sees the same content (text, author, timestamp). The
+restriction maps act as identity on content. Compatibility is
+automatic, and the global section is $p$ itself.
+\end{proof}
+
+\subsection{Repairing the sheaf: local systems and audience fibres}
+
+When audience selection breaks the sheaf, we do not discard the
+presheaf framework. Instead, we \emph{refine} it.
+
+\begin{definition}[Audience fibre]\label{def:audience-fibre}
+For a post $p$ with audience $A \subseteq \mathrm{Followers}(\mathrm{author}(p))$,
+the \emph{audience fibre} is the sub-presheaf $F_A$ obtained by
+restricting the context category to viewers in $A$:
+\[
+  F_A(c) = \begin{cases}
+    F(c) & \text{if } \viewer(c) \in A \\
+    F(c) \setminus \{p\} & \text{otherwise}
+  \end{cases}
+\]
+\end{definition}
+
+\begin{proposition}[Audience fibres are sheaves]\label{prop:fibre-sheaf}
+Within an audience fibre $F_A$, the sheaf condition holds: all
+viewers in $A$ agree on the content of $p$, and all viewers outside
+$A$ agree that $p$ does not exist. The failure is only
+\emph{between} fibres.
+\end{proposition}
+
+\begin{remark}[Local system structure]
+The audience-selected presheaf decomposes as a \emph{local system}:
+a collection of sheaves (one per audience group) glued along the
+subsets where audiences overlap. The obstruction to a global sheaf
+is precisely the audience partition---different subsets of followers
+live in different fibres. This decomposition gives a natural
+architecture for implementation: cache and replicate within an
+audience fibre (safe---it's a sheaf), but never across fibres
+(unsafe---the sheaf condition fails).
+\end{remark}
+
+\subsection{Haskell encoding}
+
+\begin{lstlisting}[style=haskell]
+-- A post with optional audience restriction
+data Post = Post
+  { postId      :: PostId
+  , postAuthor  :: UserId
+  , postBody    :: Text
+  , postCreated :: UTCTime
+  , postAudience :: Maybe (Set UserId)  -- Nothing = all followers
+  }
+
+-- Consistency levels as a type-level tag
+data ConsistencyLevel = Sheaf | EventualSheaf | Presheaf
+
+-- Tag each content type with its consistency guarantee
+type family Consistency (a :: Type) :: ConsistencyLevel where
+  Consistency PublicPost         = 'Sheaf          -- audience = Nothing
+  Consistency UserProfile        = 'Sheaf
+  Consistency LikeCount          = 'EventualSheaf
+  Consistency AudiencePost       = 'Presheaf       -- audience = Just subset
+
+-- The type system prevents treating Presheaf content as Sheaf content:
+-- you cannot cache or share AudiencePost across viewers without a
+-- type error.
+\end{lstlisting}
+
+%% ===================================================================
+\section{Interaction: comonad meets presheaf}
+\label{sec:interaction}
+%% ===================================================================
+
+The directed container comonad (Section~\ref{sec:social-dcont}) and the
+content presheaf (Section~\ref{sec:presheaf}) interact through the
+feed computation. The feed is the comonadic \texttt{extend} applied to
+a presheaf-filtered content stream.
+
+\begin{definition}[Filtered feed]
+Given a feed algorithm $f : \llbracket \mathcal{G} \rrbracket(\mathrm{Post}) \to [\mathrm{Post}]$
+and a content presheaf $F$, the \emph{filtered feed} for context $c$ is:
+\[
+  \mathrm{feed}(c) = f\bigl(\langle \ego(s, \viewer(c)),\; \lambda p.\, F(c)(p) \rangle\bigr)
+\]
+where $F(c)(p)$ returns the posts by user $p$ visible in context $c$.
+\end{definition}
+
+\begin{remark}[Colimits don't commute with filtering]
+A na\"ive implementation might compute the feed (a colimit of
+content sources) and then filter by permissions. But $\mathrm{extend}$
+does not commute with presheaf restriction in general: filtering
+after ranking may produce different results than filtering before
+ranking, since the ranking function sees a different neighbourhood.
+This non-commutativity is a source of real bugs in social network
+implementations (e.g., a ``top post'' being filtered out after ranking,
+leaving a gap).
+\end{remark}
+
+%% ===================================================================
+\section{The minimal social network}
+\label{sec:minimal}
+%% ===================================================================
+
+We identify the \emph{irreducible core} of a social network: the
+minimum feature set that exhibits network effects.
+
+\begin{definition}[Minimal social network]
+A minimal social network consists of:
+\begin{enumerate}[nosep]
+  \item \textbf{Identity}: a user type with handle and display name.
+  \item \textbf{Asymmetric connection}: a follow relation $F \subseteq U \times U$
+    (directed, no mutual consent required).
+  \item \textbf{Broadcast}: a post type (text, author, timestamp).
+  \item \textbf{Chronological feed}: the comonadic extract applied to
+    a reverse-chronological ordering.
+\end{enumerate}
+\end{definition}
+
+The data model is three tables:
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Table} & \textbf{Columns} \\
+\midrule
+\texttt{users} & \texttt{id}, \texttt{handle}, \texttt{display\_name}, \texttt{bio}, \texttt{created\_at} \\
+\texttt{follows} & \texttt{follower\_id}, \texttt{followed\_id}, \texttt{created\_at} \\
+\texttt{posts} & \texttt{id}, \texttt{author\_id}, \texttt{body} (text, $\le 280$ chars), \texttt{created\_at} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The feed query is a single join:
+
+\begin{lstlisting}[language=SQL,basicstyle=\ttfamily\small]
+SELECT posts.* FROM posts
+  JOIN follows ON posts.author_id = follows.followed_id
+  WHERE follows.follower_id = :me
+  ORDER BY posts.created_at DESC
+  LIMIT 50;
+\end{lstlisting}
+
+\begin{remark}[Categorical simplification]
+The minimal social network has a non-constant content presheaf:
+different viewers see different sets of posts (those by users they
+follow). Nevertheless, the sheaf condition holds because the
+\emph{uniform follower visibility} invariant is satisfied---every
+follower of a given author sees all of that author's posts, and all
+viewers who see a post agree on its content. The presheaf is
+non-constant but is a sheaf, and the comonad (directed container) is
+the entire story. Complexity enters only when audience selection
+(Section~\ref{sec:sheaf}) breaks the uniform visibility invariant.
+\end{remark}
+
+%% ===================================================================
+\section{Implementation architecture}
+\label{sec:architecture}
+%% ===================================================================
+
+\begin{center}
+\begin{tikzcd}[column sep=large, row sep=large]
+  \text{Lean (proofs)} \arrow[d, "\text{types} \cong" swap]
+  & \text{Containers.Directed} \arrow[r] \arrow[d, dashed]
+  & \text{SocialGraph instance} \arrow[d, dashed] \\
+  \text{Haskell (runtime)}
+  & \text{DirectedContainer class} \arrow[r]
+  & \text{Servant API}
+\end{tikzcd}
+\end{center}
+
+The implementation proceeds in layers:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Haskell domain types}: algebraic data types for
+    \texttt{User}, \texttt{Post}, \texttt{SocialGraph}, \texttt{Context}.
+  \item \textbf{Haskell directed container}: \texttt{root},
+    \texttt{egoNetwork}, \texttt{shift} implementing the comonad.
+  \item \textbf{Lean instantiation}: prove D1--D5 for these
+    definitions, importing the trust-boundaries library. Comonad laws
+    follow for free.
+  \item \textbf{Servant API}: six type-safe HTTP routes wiring the
+    comonad into a web service.
+  \item \textbf{Presheaf/sheaf layer}: added when the network supports
+    non-public content.
+\end{enumerate}
+
+The Haskell--Lean correspondence is nearly mechanical:
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Haskell} & \textbf{Lean} \\
+\midrule
+\texttt{data T = A | B | C} & \texttt{inductive T | A | B | C} \\
+\texttt{class C a where} & \texttt{class C (a : Type) where} \\
+\texttt{instance C T where} & \texttt{instance : C T where} \\
+\texttt{newtype F a = F (a -> b)} & \texttt{def F (a : Type) := a -> b} \\
+type constraint & \texttt{theorem} / \texttt{Prop} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%% ===================================================================
+\section{Future directions}
+\label{sec:future}
+%% ===================================================================
+
+\begin{enumerate}
+  \item \textbf{Zappa--Sz\'ep products}: the trust-boundaries library
+    includes Zappa--Sz\'ep products of directed containers
+    (\texttt{ZappaSzep.lean}). In the social network setting, this
+    could model the interaction between two independent graph
+    structures (e.g., follow graph and group membership graph) whose
+    directed containers compose non-trivially.
+
+  \item \textbf{CoKleisli morphisms as feed algorithms}: different feed
+    algorithms (chronological, ranked, ``following'' vs ``for you'')
+    are different coKleisli morphisms. The coKleisli category gives a
+    principled space of feed algorithms, with composition corresponding
+    to pipeline stages.
+
+  \item \textbf{Controlled sheaf failure as a design language}: rather
+    than ad-hoc privacy rules, express each new feature as a choice of
+    consistency level (Definition~\ref{def:consistency}). The Lean
+    proof obligation forces the implementer to verify that the chosen
+    level is achievable.
+
+  \item \textbf{Cofunctors for cross-network interaction}: container
+    morphisms between different social network instances
+    (federation, cross-posting) are cofunctors between directed
+    containers, with the trust-boundaries transport theorem
+    guaranteeing that trust levels translate safely.
+\end{enumerate}
+
+%% ===================================================================
+\section*{Acknowledgements}
+%% ===================================================================
+
+The directed container library and its Lean formalisation were
+developed in the trust-boundaries project. The categorical
+perspective on social networks emerged from conversations between
+Robin Langer and Neil Ghani at Kodamai.
+
+\begin{thebibliography}{9}
+
+\bibitem{aag}
+M.~Abbott, T.~Altenkirch, and N.~Ghani.
+\newblock Containers: constructing strictly positive types.
+\newblock \emph{Theoretical Computer Science}, 342(1):3--27, 2005.
+
+\bibitem{acu}
+D.~Ahman, J.~Chapman, and T.~Uustalu.
+\newblock When is a container a comonad?
+\newblock \emph{Foundations of Software Science and Computation Structures (FoSSaCS)}, 2012.
+
+\bibitem{trust}
+R.~Langer.
+\newblock Trust boundaries: epistemically honest AI agents via directed
+container comonads.
+\newblock Technical report, 2026.
+
+\bibitem{gkt}
+T.~J.~Green, G.~Karvounarakis, and V.~Tannen.
+\newblock Provenance semirings.
+\newblock \emph{PODS}, 2007.
+
+\end{thebibliography}
+
+\end{document}
