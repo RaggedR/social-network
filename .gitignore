@@ -22,3 +22,4 @@ lean/.lake/
 
 # OS
 .DS_Store
+node_modules/

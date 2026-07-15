@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Social Network — Written in Haskell and verified in Lean</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --text-muted: #78716c;
+    --accent: #7c3aed;
+    --accent-light: #ede9fe;
+    --danger: #dc2626;
+    --danger-light: #fef2f2;
+    --success: #16a34a;
+    --success-light: #f0fdf4;
+    --audience-bg: #fef3c7;
+    --audience-border: #f59e0b;
+    --sheaf-bg: #fce7f3;
+    --sheaf-border: #ec4899;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  }
+
+  body {
+    font-family: 'IBM Plex Sans', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  /* Layout */
+  .app {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 260px 1fr 280px;
+    gap: 24px;
+    padding: 24px;
+    min-height: 100vh;
+  }
+
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; padding: 12px; }
+  }
+
+  /* Header */
+  header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 8px;
+  }
+
+  header h1 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  header h1 span {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 400;
+    color: var(--accent);
+    font-size: 0.85rem;
+  }
+
+  .subtitle {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  /* Panels */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: var(--shadow);
+  }
+
+  .panel h2 {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+  }
+
+  /* Sidebar — User Switcher */
+  .sidebar { align-self: start; position: sticky; top: 24px; }
+
+  .user-btn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 10px 12px;
+    border: 2px solid transparent;
+    border-radius: 10px;
+    background: none;
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+    font-size: 0.9rem;
+    transition: all 0.15s;
+    margin-bottom: 4px;
+  }
+
+  .user-btn:hover { background: var(--bg); }
+  .user-btn.active { border-color: var(--accent); background: var(--accent-light); }
+
+  .avatar {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: white;
+    flex-shrink: 0;
+  }
+
+  .user-btn .name { font-weight: 500; }
+  .user-btn .handle { font-size: 0.78rem; color: var(--text-muted); font-family: 'IBM Plex Mono', monospace; }
+
+  /* Feed */
+  .feed { min-width: 0; }
+
+  /* Compose */
+  .compose {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+    box-shadow: var(--shadow);
+  }
+
+  .compose textarea {
+    width: 100%;
+    border: none;
+    outline: none;
+    font-family: inherit;
+    font-size: 0.95rem;
+    resize: none;
+    min-height: 60px;
+    background: transparent;
+    color: var(--text);
+  }
+
+  .compose-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .audience-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .audience-toggle input[type="checkbox"] {
+    accent-color: var(--audience-border);
+  }
+
+  .audience-picker {
+    display: none;
+    margin-top: 8px;
+    padding: 10px;
+    background: var(--audience-bg);
+    border: 1px solid var(--audience-border);
+    border-radius: 8px;
+    font-size: 0.82rem;
+  }
+
+  .audience-picker.show { display: block; }
+
+  .audience-picker label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    cursor: pointer;
+  }
+
+  .audience-picker label input { accent-color: var(--audience-border); }
+
+  .btn {
+    padding: 8px 18px;
+    border: none;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+
+  .btn-primary:hover { background: #6d28d9; }
+  .btn-primary:disabled { opacity: 0.5; cursor: default; }
+
+  .btn-sm {
+    padding: 5px 12px;
+    font-size: 0.78rem;
+    border-radius: 6px;
+  }
+
+  .btn-outline {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+
+  .btn-outline:hover { background: var(--bg); }
+
+  .btn-follow {
+    background: var(--accent);
+    color: white;
+  }
+
+  .btn-follow:hover { background: #6d28d9; }
+
+  .btn-unfollow {
+    background: none;
+    border: 1px solid var(--danger);
+    color: var(--danger);
+  }
+
+  .btn-unfollow:hover { background: var(--danger-light); }
+
+  /* Post card */
+  .post {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+    box-shadow: var(--shadow);
+    transition: border-color 0.15s;
+  }
+
+  .post.audience-restricted {
+    border-left: 3px solid var(--audience-border);
+  }
+
+  .post-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .post-header .avatar { width: 32px; height: 32px; font-size: 0.75rem; }
+
+  .post-meta .name { font-weight: 500; font-size: 0.9rem; }
+  .post-meta .handle { font-size: 0.78rem; color: var(--text-muted); font-family: 'IBM Plex Mono', monospace; }
+  .post-meta .time { font-size: 0.75rem; color: var(--text-muted); }
+
+  .post-body {
+    font-size: 0.95rem;
+    margin: 8px 0;
+    line-height: 1.5;
+  }
+
+  .audience-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.72rem;
+    font-family: 'IBM Plex Mono', monospace;
+    padding: 3px 8px;
+    background: var(--audience-bg);
+    border: 1px solid var(--audience-border);
+    border-radius: 4px;
+    color: #92400e;
+    margin-top: 6px;
+  }
+
+  /* Right sidebar */
+  .right-sidebar { align-self: start; position: sticky; top: 24px; }
+
+  .follow-list { list-style: none; }
+
+  .follow-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .follow-item:last-child { border-bottom: none; }
+
+  .follow-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .follow-info .avatar { width: 28px; height: 28px; font-size: 0.7rem; }
+  .follow-info .name { font-size: 0.85rem; font-weight: 500; }
+
+  /* Sheaf banner */
+  .sheaf-banner {
+    background: var(--sheaf-bg);
+    border: 1px solid var(--sheaf-border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+    font-size: 0.84rem;
+    line-height: 1.5;
+  }
+
+  .sheaf-banner strong {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.8rem;
+  }
+
+  .sheaf-banner .math {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--sheaf-border);
+  }
+
+  .sheaf-banner p { margin: 4px 0; }
+
+  /* Stats */
+  .stats {
+    display: flex;
+    gap: 16px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  .stats span strong { color: var(--text); }
+
+  /* Empty state */
+  .empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+  }
+
+  /* Create user */
+  .create-user {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .create-user input {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.85rem;
+    margin-bottom: 6px;
+    outline: none;
+  }
+
+  .create-user input:focus { border-color: var(--accent); }
+
+  /* Info panel */
+  .info-panel {
+    grid-column: 1 / -1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    box-shadow: var(--shadow);
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    text-align: center;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  .info-panel a { color: var(--accent); text-decoration: none; }
+  .info-panel a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <div>
+      <h1>social-network <span>// written in Haskell, verified in Lean</span></h1>
+    </div>
+    <div class="subtitle">SQLite in WASM &middot; no server &middot; presheaf demo</div>
+  </header>
+
+  <!-- Left: User switcher -->
+  <aside class="sidebar panel" id="sidebar">
+    <h2>Viewing as</h2>
+    <div id="user-list"></div>
+    <div class="create-user">
+      <input type="text" id="new-handle" placeholder="@handle">
+      <input type="text" id="new-name" placeholder="Display name">
+      <button class="btn btn-primary btn-sm" style="width:100%" onclick="createUser()">Create user</button>
+    </div>
+  </aside>
+
+  <!-- Center: Feed -->
+  <main class="feed" id="feed-area">
+    <div id="sheaf-banner"></div>
+    <div class="compose" id="compose-area">
+      <textarea id="post-body" placeholder="What's on your mind?"></textarea>
+      <div class="audience-picker" id="audience-picker"></div>
+      <div class="compose-footer">
+        <label class="audience-toggle">
+          <input type="checkbox" id="restrict-toggle" onchange="toggleAudiencePicker()">
+          Restrict audience
+        </label>
+        <button class="btn btn-primary" onclick="createPost()">Post</button>
+      </div>
+    </div>
+    <div id="feed"></div>
+  </main>
+
+  <!-- Right: Follow suggestions + stats -->
+  <aside class="right-sidebar" id="right-sidebar">
+    <div class="panel" style="margin-bottom: 16px;">
+      <h2>People</h2>
+      <ul class="follow-list" id="follow-list"></ul>
+    </div>
+    <div class="panel">
+      <h2>Your stats</h2>
+      <div class="stats" id="stats"></div>
+    </div>
+  </aside>
+
+  <div class="info-panel">
+    Social networks as directed container comonads &middot;
+    <a href="https://github.com/RaggedR/social-network" target="_blank">GitHub</a> &middot;
+    Langer &amp; Ghani, 2026
+  </div>
+</div>
+
+<script src="https://sql.js.org/dist/sql-wasm.js"></script>
+<script>
+// Colors for avatars
+const COLORS = ['#7c3aed','#2563eb','#dc2626','#059669','#d97706','#db2777','#4f46e5','#0891b2'];
+function avatarColor(id) { return COLORS[(id - 1) % COLORS.length]; }
+function avatarLetter(name) { return name.charAt(0).toUpperCase(); }
+
+let db;
+let currentUserId = 1;
+
+async function init() {
+  const SQL = await initSqlJs({ locateFile: f => `https://sql.js.org/dist/${f}` });
+  db = new SQL.Database();
+  createSchema();
+  seedData();
+  renderAll();
+}
+
+function createSchema() {
+  db.run(`
+    CREATE TABLE users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      handle TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE follows (
+      follower_id INTEGER NOT NULL,
+      followed_id INTEGER NOT NULL,
+      PRIMARY KEY (follower_id, followed_id)
+    );
+    CREATE TABLE posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      author_id INTEGER NOT NULL,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE post_audience (
+      post_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      PRIMARY KEY (post_id, user_id)
+    );
+  `);
+}
+
+function seedData() {
+  // Users
+  db.run("INSERT INTO users (handle, display_name) VALUES ('alice', 'Alice')");
+  db.run("INSERT INTO users (handle, display_name) VALUES ('bob', 'Bob')");
+  db.run("INSERT INTO users (handle, display_name) VALUES ('carol', 'Carol')");
+  db.run("INSERT INTO users (handle, display_name) VALUES ('dave', 'Dave')");
+
+  // Follows: Bob, Carol, Dave follow Alice. Alice follows Bob.
+  db.run("INSERT INTO follows VALUES (2, 1)"); // Bob -> Alice
+  db.run("INSERT INTO follows VALUES (3, 1)"); // Carol -> Alice
+  db.run("INSERT INTO follows VALUES (4, 1)"); // Dave -> Alice
+  db.run("INSERT INTO follows VALUES (1, 2)"); // Alice -> Bob
+
+  // Posts
+  db.run("INSERT INTO posts (author_id, body, created_at) VALUES (1, 'Hello everyone! This post is visible to all my followers.', datetime('now', '-2 hours'))");
+  db.run("INSERT INTO posts (author_id, body, created_at) VALUES (1, 'This is only for my close friends — you know who you are.', datetime('now', '-1 hour'))");
+  db.run("INSERT INTO posts (author_id, body, created_at) VALUES (2, 'Just joined this network!', datetime('now', '-30 minutes'))");
+
+  // Audience restriction on post 2: only Carol (3), Dave (4), and Alice (1, the author)
+  db.run("INSERT INTO post_audience VALUES (2, 1)");
+  db.run("INSERT INTO post_audience VALUES (2, 3)");
+  db.run("INSERT INTO post_audience VALUES (2, 4)");
+}
+
+// ─── Queries ───────────────────────────────────────────────────
+
+function getUsers() {
+  return db.exec("SELECT id, handle, display_name FROM users ORDER BY id")[0]?.values || [];
+}
+
+function getUser(id) {
+  const r = db.exec("SELECT id, handle, display_name FROM users WHERE id = ?", [id]);
+  return r[0]?.values[0];
+}
+
+function getFeed(viewerId) {
+  const sql = `
+    SELECT DISTINCT p.id, p.author_id, p.body, p.created_at,
+      u.handle, u.display_name
+    FROM posts p
+    JOIN users u ON u.id = p.author_id
+    LEFT JOIN follows f ON p.author_id = f.followed_id AND f.follower_id = ?
+    WHERE (p.author_id = ? OR f.follower_id IS NOT NULL)
+      AND (NOT EXISTS (SELECT 1 FROM post_audience pa WHERE pa.post_id = p.id)
+           OR EXISTS (SELECT 1 FROM post_audience pa WHERE pa.post_id = p.id AND pa.user_id = ?))
+    ORDER BY p.created_at DESC
+  `;
+  return db.exec(sql, [viewerId, viewerId, viewerId])[0]?.values || [];
+}
+
+function getPostAudience(postId) {
+  const r = db.exec(`
+    SELECT pa.user_id, u.display_name
+    FROM post_audience pa JOIN users u ON u.id = pa.user_id
+    WHERE pa.post_id = ?
+  `, [postId]);
+  return r[0]?.values || [];
+}
+
+function isFollowing(followerId, followedId) {
+  const r = db.exec("SELECT 1 FROM follows WHERE follower_id = ? AND followed_id = ?", [followerId, followedId]);
+  return (r[0]?.values.length || 0) > 0;
+}
+
+function getFollowingCount(userId) {
+  const r = db.exec("SELECT COUNT(*) FROM follows WHERE follower_id = ?", [userId]);
+  return r[0]?.values[0][0] || 0;
+}
+
+function getFollowerCount(userId) {
+  const r = db.exec("SELECT COUNT(*) FROM follows WHERE followed_id = ?", [userId]);
+  return r[0]?.values[0][0] || 0;
+}
+
+function getPostCount(userId) {
+  const r = db.exec("SELECT COUNT(*) FROM posts WHERE author_id = ?", [userId]);
+  return r[0]?.values[0][0] || 0;
+}
+
+// ─── Actions ───────────────────────────────────────────────────
+
+function switchUser(id) {
+  currentUserId = id;
+  renderAll();
+}
+
+function toggleFollow(targetId) {
+  if (isFollowing(currentUserId, targetId)) {
+    db.run("DELETE FROM follows WHERE follower_id = ? AND followed_id = ?", [currentUserId, targetId]);
+  } else {
+    db.run("INSERT OR IGNORE INTO follows VALUES (?, ?)", [currentUserId, targetId]);
+  }
+  renderAll();
+}
+
+function createPost() {
+  const body = document.getElementById('post-body').value.trim();
+  if (!body) return;
+
+  db.run("INSERT INTO posts (author_id, body) VALUES (?, ?)", [currentUserId, body]);
+
+  const restricted = document.getElementById('restrict-toggle').checked;
+  if (restricted) {
+    const postId = db.exec("SELECT last_insert_rowid()")[0].values[0][0];
+    // Always include the author
+    db.run("INSERT INTO post_audience VALUES (?, ?)", [postId, currentUserId]);
+    // Add checked users
+    document.querySelectorAll('.audience-cb:checked').forEach(cb => {
+      const uid = parseInt(cb.value);
+      if (uid !== currentUserId) {
+        db.run("INSERT INTO post_audience VALUES (?, ?)", [postId, uid]);
+      }
+    });
+  }
+
+  document.getElementById('post-body').value = '';
+  document.getElementById('restrict-toggle').checked = false;
+  document.getElementById('audience-picker').classList.remove('show');
+  renderAll();
+}
+
+function createUser() {
+  const handle = document.getElementById('new-handle').value.trim().replace('@', '');
+  const name = document.getElementById('new-name').value.trim();
+  if (!handle || !name) return;
+  try {
+    db.run("INSERT INTO users (handle, display_name) VALUES (?, ?)", [handle, name]);
+    document.getElementById('new-handle').value = '';
+    document.getElementById('new-name').value = '';
+    renderAll();
+  } catch (e) {
+    alert('Handle already taken!');
+  }
+}
+
+function toggleAudiencePicker() {
+  const picker = document.getElementById('audience-picker');
+  const checked = document.getElementById('restrict-toggle').checked;
+  if (checked) {
+    renderAudiencePicker();
+    picker.classList.add('show');
+  } else {
+    picker.classList.remove('show');
+  }
+}
+
+// ─── Rendering ─────────────────────────────────────────────────
+
+function renderAll() {
+  renderUserList();
+  renderFeed();
+  renderFollowList();
+  renderStats();
+  renderSheafBanner();
+}
+
+function renderUserList() {
+  const users = getUsers();
+  const el = document.getElementById('user-list');
+  el.innerHTML = users.map(([id, handle, name]) => `
+    <button class="user-btn ${id === currentUserId ? 'active' : ''}" onclick="switchUser(${id})">
+      <div class="avatar" style="background:${avatarColor(id)}">${avatarLetter(name)}</div>
+      <div>
+        <div class="name">${name}</div>
+        <div class="handle">@${handle}</div>
+      </div>
+    </button>
+  `).join('');
+}
+
+function renderFeed() {
+  const posts = getFeed(currentUserId);
+  const el = document.getElementById('feed');
+
+  if (posts.length === 0) {
+    el.innerHTML = '<div class="empty">No posts in your feed. Follow someone to see their posts.</div>';
+    return;
+  }
+
+  el.innerHTML = posts.map(([postId, authorId, body, createdAt, handle, displayName]) => {
+    const audience = getPostAudience(postId);
+    const isRestricted = audience.length > 0;
+    const timeAgo = formatTime(createdAt);
+    const audienceNames = audience.filter(([uid]) => uid !== authorId).map(([, n]) => n);
+
+    return `
+      <div class="post ${isRestricted ? 'audience-restricted' : ''}">
+        <div class="post-header">
+          <div class="avatar" style="background:${avatarColor(authorId)}">${avatarLetter(displayName)}</div>
+          <div class="post-meta">
+            <span class="name">${displayName}</span>
+            <span class="handle">@${handle}</span>
+            <span class="time">&middot; ${timeAgo}</span>
+          </div>
+        </div>
+        <div class="post-body">${escapeHtml(body)}</div>
+        ${isRestricted ? `
+          <div class="audience-badge">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+            Visible to: ${audienceNames.join(', ')}
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function renderFollowList() {
+  const users = getUsers();
+  const el = document.getElementById('follow-list');
+  const others = users.filter(([id]) => id !== currentUserId);
+
+  el.innerHTML = others.map(([id, handle, name]) => {
+    const following = isFollowing(currentUserId, id);
+    return `
+      <li class="follow-item">
+        <div class="follow-info">
+          <div class="avatar" style="background:${avatarColor(id)}">${avatarLetter(name)}</div>
+          <div>
+            <div class="name">${name}</div>
+          </div>
+        </div>
+        <button class="btn btn-sm ${following ? 'btn-unfollow' : 'btn-follow'}" onclick="toggleFollow(${id})">
+          ${following ? 'Unfollow' : 'Follow'}
+        </button>
+      </li>
+    `;
+  }).join('');
+}
+
+function renderAudiencePicker() {
+  const users = getUsers();
+  const followers = users.filter(([id]) => {
+    if (id === currentUserId) return false;
+    return isFollowing(id, currentUserId);
+  });
+  const el = document.getElementById('audience-picker');
+
+  if (followers.length === 0) {
+    el.innerHTML = '<div style="color:#92400e">No followers to restrict to.</div>';
+    return;
+  }
+
+  el.innerHTML = '<div style="margin-bottom:6px;color:#92400e;font-weight:500">Who can see this?</div>' +
+    followers.map(([id, handle, name]) => `
+      <label>
+        <input type="checkbox" class="audience-cb" value="${id}" checked>
+        ${name} <span style="color:#78716c">@${handle}</span>
+      </label>
+    `).join('');
+}
+
+function renderStats() {
+  const el = document.getElementById('stats');
+  el.innerHTML = `
+    <span><strong>${getPostCount(currentUserId)}</strong> posts</span>
+    <span><strong>${getFollowingCount(currentUserId)}</strong> following</span>
+    <span><strong>${getFollowerCount(currentUserId)}</strong> followers</span>
+  `;
+}
+
+function renderSheafBanner() {
+  const el = document.getElementById('sheaf-banner');
+  const user = getUser(currentUserId);
+  if (!user) return;
+  const [, , name] = user;
+
+  // Count posts Alice has that this user CAN'T see
+  const allAlicePosts = db.exec("SELECT COUNT(*) FROM posts WHERE author_id = 1")[0]?.values[0][0] || 0;
+  const visibleAlicePosts = db.exec(`
+    SELECT COUNT(DISTINCT p.id) FROM posts p
+    LEFT JOIN follows f ON p.author_id = f.followed_id AND f.follower_id = ?
+    WHERE p.author_id = 1
+      AND (p.author_id = ? OR f.follower_id IS NOT NULL)
+      AND (NOT EXISTS (SELECT 1 FROM post_audience pa WHERE pa.post_id = p.id)
+           OR EXISTS (SELECT 1 FROM post_audience pa WHERE pa.post_id = p.id AND pa.user_id = ?))
+  `, [currentUserId, currentUserId, currentUserId])[0]?.values[0][0] || 0;
+
+  const hidden = allAlicePosts - visibleAlicePosts;
+
+  if (hidden > 0 && currentUserId !== 1) {
+    el.innerHTML = `
+      <div class="sheaf-banner">
+        <p><strong>Sheaf failure detected.</strong></p>
+        <p>${name} follows Alice but cannot see <strong>${hidden}</strong> of her
+        ${hidden === 1 ? 'post' : 'posts'} (audience-restricted).
+        Other followers <em>can</em> see ${hidden === 1 ? 'it' : 'them'}.</p>
+        <p class="math">Two followers, same author, different visibility. The gluing axiom fails.</p>
+        <p style="margin-top:8px;font-size:0.78rem;">Switch to Carol or Dave to see the hidden ${hidden === 1 ? 'post' : 'posts'}.</p>
+      </div>
+    `;
+  } else if (currentUserId !== 1 && isFollowing(currentUserId, 1)) {
+    el.innerHTML = `
+      <div class="sheaf-banner" style="background:var(--success-light);border-color:var(--success);">
+        <p><strong>Sheaf intact.</strong></p>
+        <p>${name} can see all of Alice's posts. All followers in this fibre agree on what exists.</p>
+        <p class="math" style="color:var(--success);">Within an audience fibre, the sheaf condition holds. Proved by rfl.</p>
+      </div>
+    `;
+  } else {
+    el.innerHTML = '';
+  }
+}
+
+// ─── Helpers ───────────────────────────────────────────────────
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function formatTime(iso) {
+  try {
+    const d = new Date(iso + 'Z');
+    const now = new Date();
+    const diff = (now - d) / 1000;
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return `${Math.floor(diff/60)}m`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h`;
+    return `${Math.floor(diff/86400)}d`;
+  } catch {
+    return '';
+  }
+}
+
+// Boot
+init();
+</script>
+</body>
+</html>
