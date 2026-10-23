@@ -1,0 +1,42 @@
+name: Lean Action CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # The Lean project lives in lean/. No Mathlib dependency, so this is a fast,
+      # cache-free build of the Containers + SocialNetwork libraries.
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: "lean"
+
+      # Certification: no `sorry` reaches any headline theorem.
+      # Default shell is `bash -eo pipefail`, so an elaboration error (e.g. an
+      # unresolved name) fails the step on its own. We also fail on `sorryAx`,
+      # and require a report for each result (defeats a vacuous pass).
+      - name: Axiom certification (no sorry reaches the headline theorems)
+        working-directory: lean
+        run: |
+          lake env lean Certify.lean 2>&1 | tee axioms.txt
+          if grep -q "sorryAx" axioms.txt; then
+            echo "::error::sorryAx reached a headline theorem — certification failed"
+            exit 1
+          fi
+          for t in Containers.Ext.map_id Containers.Ext.map_comp Containers.ExtNatTrans.toMorphism_toExtNatTrans Containers.DirectedContainer.extend_extend SocialNetwork.coassoc SocialNetwork.extend_extend; do
+            if ! grep -q "'$t' depends on axioms" axioms.txt; then
+              echo "::error::no axiom report for '$t' — name did not resolve (vacuous certification)"
+              exit 1
+            fi
+          done
+          echo "Certified: all headline theorems proved with no sorry."
